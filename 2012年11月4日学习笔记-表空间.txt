@@ -1,0 +1,250 @@
+﻿oracle为什么要引入逻辑结构？
+答：为了增加oracle的可移植性。
+
+1.数据库中存储结构之间的关系
+每个数据库是由一个多多个表空间组成（至少一个）
+每个表空间基于一个或多个操作系统的数据文件（至少一个）
+每个表空间中可以存放一个或多个段（segment)
+每个段是由一个或多个区段(extent)所组成
+	oracle中对表空间的管理主要还是对区段的管理．
+每个区段是由一个或多个连续的oracle数据块所组成
+每个oracle数据块是由一个或多个连续的操作系统数据块所组成
+每个操作系统数据文件是由一个或多个区段组成
+每个操作系统数据文件是由一个或者多个操作系统数据块所组成
+
+2.表空间的类型
+oracle管理的表空间可以分为本地管理的表空间和数据字典管理的表空间。
+从ｏｒａｌｃｅ9i开始，如果SYSTEM表空间为本地管理的，oracle系统就不允许再创建数据字典管理的表空间。
+
+3.查看表空间的信息
+SELECT TABLESPACE_NAME,STATUS,CONTENTS,LOGGING,EXTENT_MANAGEMENT FROM DBA_TABLESPACES;
+SELECT FILE_ID,FILE_NAME,TABLESPACE_NAME FROM DBA_DATA_FILES;
+
+4.创建永久表空间
+
+4.1 CREATE TABLESPACE TS1 DATAFILE '/home/oracle/data1.dbf' SIZE 50M EXTENT MANAGEMENT LOCAL UNIFORM SIZE 128K SEGMENT SPACE MANAGEMENT AUTO;
+创建本地管理的表空间，每个EXTENT的大小为128KB。
+	注意：EXTENＴ的大小是可以随意指定的．根据所存表的大小来合理分配EXTENT的大小．
+	创建本地管理的表空间时，可以选择更具体的空间分配方式：是选择自动分配（AUTOALLOCATE）还是统一尺寸(UNIFORM).
+	若为自动分配，则表明让oracle决定区块的使用方法，缺省的oracle会按照递归算法来分配空间．
+	如果选择统一尺寸，则还可以详细的指定每个区间（EXTENT)的大小．如果不指定UNIFORM SIZE的大小．默认为每个区段分配１ＭＢ大小．
+
+4.2 一个重要视图ＤＢＡ＿ＥＸＴＥＮＴＳ
+SQL> SELECT EXTENT_ID,BLOCK_ID,BLOCKS FROM DBA_EXTENTS WHERE SEGMENT_NAME='T1' AND TABLESPACE_NAME='TS1'
+
+ EXTENT_ID   BLOCK_ID	  BLOCKS
+---------- ---------- ----------
+	 0	    9	      16
+	 1	   25	      16
+在本地管理的表空间中，如果数据库块大小(db_block_size)为１６ＫＢ或１６ＫＢ以下，数据文件头保留６４ＫＢ空间；若是３２ＫＢ的块大小，则保留１２８ＫＢ．即数据块大小和文件头保留的数据块块数之间的对应关系为：
+	db_block_size=2KB,文件头会保留３２个数据块．
+	db_block_size=4KB,文件头会保留１６个数据块．
+	db_block_size=8KB,文件头会保留８个数据块．
+	db_block_size=16KB,文件头会保留４个数据块．
+	db_block_size=32KB,文件头会保留４个数据块．
+
+CREATE TABLESPACE TS2 DATAFILE '/tmp/data2.dbf' SIZE 50M EXTENT MANAGEMENT DICTIONARY UNIFORM SIZE 1M;
+创建数据字典管理的表空间。数据字典管理的表空间在繁忙的数据库中，可能会带来灾难．
+	主要原因是：在需要删除一个字典管理的表空间时，oracle需要递归地删除表空间里所有的EXTENT,包括使用的和未使用的．这样会消耗掉很多的时间．字典管理的表空间是一种过时的技术，会逐渐被淘汰．
+
+5.还原表空间
+还原表空间是oracle9i刚刚引入的，它是用来自动的管理还原（回滚）数据。
+还原表空间是用来存储还原段的，在还原表空间中不能包含任何其他的对象。
+还原表空间中的区段（extent）是由本地管理的，而且在创建还原表空间的ＳＱＬ语句中只能使用DATAFILE和EXTENT MANAGEMENT子句。
+CREATE UNDO TABLESPACE TS2 DATAFILE '/tmp/data2.dbf' SIZE 100M;
+
+6.临时表空间
+当在用户SQL语句中使用了诸如ORDER BY,GROUP BY子句时oracle服务器就需要对所选取的数据进行排序，这是如果排序的数据量很大，内存的排序区（在ＰＧＡ中）就可能装不下，因此oracle服务器就要把一些中间的排序结果写到磁盘上，即临时表空间中。
+当创建临时表空间时，必须使用标准数据块。另外，oracle还推荐使用本地管理的表空间。
+(了解)PGA一部分内容就是排序区,在数据量很大的时候就要用到在硬盘上的临时表空间.
+CREATE TEMPORARY TABLESPACE TS3 TEMPFILE '/tmp/data4.dbf' SIZE 100M EXTENT MANAGEMENT LOCAL UNIFORM SIZE 2M;
+
+本地管理的临时表空间是基于临时数据文件的，这些文件与普通的数据文件非常相似，但他们还具有如下特征：
+临时数据文件的状态不能置为只读。
+不能将临时数据文件重新命名。
+临时数据文件总是置为NOLOGGING状态。
+不能使用ALTER DATABASE命令创建临时数据文件。
+以只读方式运行的数据库需要临时数据文件。
+介质恢复是不能恢复临时数据文件的。
+
+为了优化某一临时表空间中排序的效率，还应将UNIFORM SIZE设为SORT_AREA_SIZE(PGA中排序的大小）参数的整数倍。
+
+查看系统默认的临时表空间
+SELECT * FROM DATABASE_PROPERTIES WHERE PROPERTY_NAME LIKE 'DEFAULT%';
+
+设置系统默认的临时表空间
+ALTER DATABASE DEFAULT TEMPORARY TABLESPACE TS3;
+
+
+7.有时需要将表空间置于脱机状态，进行数据库维护。维护工作包括：
+在数据库处于打开状态下移动数据文件。
+在数据库处于打开状态下恢复一个表空间或一个数据文件。
+执行对表空间的脱机备份（虽然对表空间可以进行联机备份）
+使数据库的一部分不可以被访问，而其他的部分可以被正常的访问。
+
+不能被置于脱机状态的表空间：
+系统表空间
+上面有活动的还原/回滚段的表空间
+默认临时表空间
+
+将表空间置于脱机状态
+ALTER TABLESPACE TS2 OFFLINE;
+ALTER TABLESPACE TS2 ONLINE;
+ALTER TABLESPACE TS2 READ ONLY;
+ALTER TABLESPACE TS2 READ WRITE;
+
+使表空间处于离线状态
+
+7.1 把指定的表空间置于离线状态。
+把表空间置于离线状态有如下几种方式：
+1）OFFLINE NORMAL 这种模式是把内存中的块数据全部回写到硬盘上。用此种方式把表空间置于离线状态后，再把表空间置于在线状态时不会要求media recovery。
+2）OFFLINE TEMPORARY 这种模式中oracle会出发一个检查点，但是不能确定所有的数据已经被写入。所以当要把表空间的状态置于在线的时候有可能会要求media recovery。
+3）OFFLINE IMMEDIATE 这种方式是立即把表空间置于离线状态。没有执行检查点。所以在重置表空间为在线状态的时候必须要media recovery.
+ 
+SQL> ALTER TABLESPACE TB1 OFFLINE IMMEDIATE;
+	注意：如果数据库当前不是归档日志模式，那执行上述修改表空间的命令或用ALTER DATABASE DATAFILE 5 OFFLINE命令使表空间或数据文件处于离线状态时会报如下错误：
+ORA-01145:offline immediate disallowed unless media recovery enabled.此时要修改成归档日志模式就可以了．
+
+7.2 把表空间重置为在线状态。
+SQL> ALTER TABLESPACE TB1 ONLINE;
+alter tablespace tb1 online
+*
+ERROR at line 1:
+ORA-01113: file 5 needs media recovery
+ORA-01110: data file 5: '/tmp/data1.dbf'  oracle要求我们必须进行media recovery
+
+7.3 恢复数据文件。
+SQL> alter database recover datafile '/tmp/data1.dbf';
+或者
+SQL> ALTER DATABASE RECOVER DATAFILE 5;
+或者
+SQL> ALTER DATABASE RECOVER AUTOMATIC;
+
+7.4 查看表空间的状态
+SQL> select tablespace_name,status from dba_tablespaces;
+
+7.5 把表空间置于在线状态。
+SQL> alter tablespace tb1 online;
+
+7.6 查看表空间的状态
+SQL> select tablespace_name,status from dba_tablespaces;
+TABLESPACE_NAME 	       STATUS
+------------------------------ ---------
+SYSTEM			       ONLINE
+UNDOTBS1		       ONLINE
+SYSAUX			       ONLINE
+TEMP			       ONLINE
+USERS			       ONLINE
+TB1			       ONLINE
+
+6 rows selected.
+
+8.重置表空间的大小
+通过如下方法来增加表空间的大小
+8.1改变数据文件的大小
+在创建表空间时使用AUTOEXTEND ON 自动地改变（扩展）数据文件的大小。
+在创建表空间之后使用带有AUTOEXTEND ON选项的ALTER DATABASE 命令手动地改变数据文件的大小。
+
+确定哪些表空间或数据文件可以自动扩展
+SELECT FILE_ID,TABLESPACE_NAME,FILE_NAME,AUTOEXTENSIBLE FROM DBA_DATA_FILES;
+修改表空间的数据文件为自动扩展
+ALTER DATABASE DATAFILE '/tmp/data11.dbf'  AUTOEXTEND ON NEXT 1M;
+查看数据文件的大小
+SELECT FILE_ID,FILE_NAME,TABLESPACE_NAME,BYTES/1024/1024 AS MB FROM DBA_DATA_FILES;
+修改数据文件的大小
+ALTER DATABASE DATAFILE '/tmp/data11.cfg' RESIZE 200M;
+
+8.2使用ALTER TABLESPACE语句来增加数据文件
+在表空间中新添加一个数据文件来扩充表空间的大小
+ALTER TABLESPACE TBS3 ADD DATAFILE '/tmp/data12.cfg' SIZE 100M;
+
+9.移动数据文件的方法
+有的项目中需要把数据文件从一个存储介质移动到另一个存储介质。可以用数据文件的移动方法来实现。
+
+9.1ALTER TABLESPACE移动非系统表空间的数据文件到指定目录
+该语句只适用于上面没有活动的还原数据或临时段的非系统表空间中的数据文件。要求表空间必须为脱机状态且目标数据文件必须存在，因为该语句只修改控制文件中指向数据文件的指针。 
+
+SELECT TABLESPACE_NAME,STATUS,CONTENTS FROM DBA_TABLESPACES;
+查看表空间的信息。
+SELECT FILE_NAME,TABLESPACE_NAME FROM DBA_DATA_FILES；
+查看表空间的数据文件。
+ALTER TABLESPACE TBS3 OFFLINE;
+把表空间置于脱机状态。
+HOST cp /tmp/data11.cfg /tmp/data22.cfg
+把表空间的数据文件拷贝到目标目录下。
+ALTER TABLESPACE TBS3 RENAME DATAFILE '/tmp/data11.cfg' TO '/tmp/data22.cfg';
+移动数据文件到指定位置。
+ALTER TABLESPACE TBS3 ONLINE;
+把表空间置于在线状态。
+
+9.2ALTER DATABASE移动系统表空间的数据文件到指定目录
+
+CONNECT SYS/ORACLE AS SYSDBA;
+登录到管理员账户。
+SELECT TABLESPACE_NAME,FILE_NAME FROM DBA_DATA_FILES;
+查看表空间的数据文件信息。
+SHUTDOWN IMMEDIATE;
+关闭数据库。
+STARTUP MOUNT;
+启动实例并且挂载数据库。
+HOST cp /opt/oracle/oradata/ORCL/system01.dbf /opt/oracle/oradata/ORCL/system02.dbf
+拷贝表空间的数据文件到指定位置。
+ALTER DATABASE RENAME FILE '/opt/oracle/oradata/ORCL/system01.dbf' TO '/opt/oracle/oradata/ORCL/system02.dbf';
+修改表空间数据文件位置的指针。
+ALTER DATABASE OPEN;
+打开数据库。
+
+10.删除表空间
+ALTER TABLESPACE TS2 INCLUDING CONTENTS AND DATAFILES;
+
+11.改变表空间的存储设置
+随着项目的不断发展，有关项目的数据量变得越来越大，以前设置的存储参数不合适了，为了提高项目的数据处理速度，应该修改表空间中的存储参数
+MINIMUM EXTENT
+INITIAL
+NEXT
+
+修改参数
+ALTER TABLESPACE TS2 MINIMUM EXTENT 100K;
+ALTER TABLESPACE TS2 DEFAULT STORAGE ( INITIAL 100K NEXT 100K MAXEXTENTS 200 );
+
+
+12.修改缺省的临时表空间和数据表空间
+在oracle10g中，全局缺省的临时表空间和数据表空间不能被删除．如果确实要删除缺省的临时表空间或数据表空间，需要首先创建一个新的临时表空间或数据表空间，然后将全局缺省的表空间更改到新创建的表空间上．
+SQL> ALTER DATABASE DEFAULT TABLESPACE USER01;
+SQL> ALTER DATABASE DEFAULT TEMPORARY TABLESPACE USER02;
+SQL> ALTER SYSTEM SET UNDO_TABLESPACE=USER03 SCOPE=SPFILE;
+
+13.查看表空间的剩余空间大小
+SQL> SELECT * FROM DBA_FREE_SPACE;
+
+
+
+
+
+
+14.调优相关(了解)
+
+14.1查看表空间和盘区
+SQL> SELECT TABLESPACE_NAME,EXTENT_MANAGEMENT FROM DBA_TABLESPACES;
+如果SYSTEM表空间是LOCAL本地管理的,那其他的表空间必须是LOCALE本地管理的.
+如果SYSTEM表空间是数据字典管理的,那其他的表空间可以是本地管理也可以是数据字典管理.
+
+段就是基本数据对象:表,索引,快照等.如果在一个表空间内创建了10个表,那表空间就有10个表的段.在表空间中存数据了才叫段.
+段包括,回滚段,临时段和大对象段.
+查看段:
+SQL> SELECT SEGMENT_NAME FROM USER_SEGMENTS;
+查到的段的个数等于用户创建的表和索引的个数之和.
+
+
+14.2如果表空间空间不够,报的错是不能在表空间中分配盘区了,而不是表空间满了.
+查看数据块的大小
+SQL> SHOW PARAMETER BLOCK;
+
+14.3当数据库运行了很长时间后,并且表很大.这样就会造成表中的数据不是连续的.而影响性能.可以使用段指导来压缩表(在线).最简单的方法是用导入和导出命令重新建表.
+
+
+14.4oracle自动管理文件.
+如果采用oracle自动管理文件,则应修改参数DB_CREATE_FILE_DEST的值为指定的路径.这样oracle就把数据文件,控制文件和重做日志文件放入指定的目录.
+如果DB_CREATE_FILE_DEST和DB_CREATE_ONLINE_LOG_DEST_1,此时DB_CREATE_FILE_DEST中保存的是数据文件,而DB_CREATE_ONLINE_LOG_DEST_1保存的是控制文件和日志文件.
+RAC缺省的都是ORACLE管理的文件.
+在oracle自动管理文件中,如果删除表空间,则oracle会自动把表空间的数据文件删除了.

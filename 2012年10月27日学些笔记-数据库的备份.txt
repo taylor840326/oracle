@@ -1,0 +1,166 @@
+
+						数据库备份听课记录
+课程时间：2012年10月27日 9：00
+
+1.系统脱机备份
+1.1.只有在运行commit命令的时候才把操作写到日志文件中。正常关机会执行检查点。这样数据都写到数据文件中。此时就用不到日志文件。
+1.2.系统改变号不仅数据文件要写，控制文件和日志文件中也要写。只要所有文件的系统改变号一致的话就叫做一致性备份。
+1.3.oracle先读控制文件的系统改变号，然后再读数据文件和日志文件的系统改变号。如果一致，则数据库就可以打开了，如果不一致，数据库就无法打开了。
+1.4.控制文件的系统改变号是随时写的，当突然断电，oracle会用日志文件把数据文件的系统改变号恢复到和控制文件一致。这样就打开了。
+1.5.如果备份之后有日志，可以用日志把系统改变号恢复到一致。
+
+2.系统联机备份
+2.1 oralce按数据块为单位。当某个数据块正在被修改，oracle会暂停备份，然后等数据块修改完成后再继续备份。这样就造成了一个文件中的内容都不一致。
+2.2 如果做的是联机备份，那数据库必须被设置成归档模式。脱机备份可以是归档模式，也可以是非归档模式。
+
+3.系统恢复
+3.1 实例恢复包括两种明显的操作：前滚和回退
+    实例失败时的恢复过程：先由日志文件进行数据库的前滚操作，前滚操作后用回退段把数据库进行回退操作。
+3.2 归档日志是当一个日志被写满后才归档。如果没有写满的话就不能归档。在恢复的时候先用归档日志恢复，然后在根据非归档日志恢复。
+3.3 如果只用归档日志恢复，没有用非归档日志恢复，则叫不完全恢复 。相反就叫完全恢复。
+3.4 在一个重做日志写满后就归档。
+
+4.如果一个表空间的数据文件被删除了。此时用startup启动实例的话数据库是无法打开的。如果只是其中一个业务模块的表空间被删除了，而其他模块的表空间还存在的话，就可以这样做。
+4.1 停止数据库
+shutdown immediate;
+4.2 启动实例并且挂载数据库。
+startup mount
+4.3 为指定的表空间创建一个新的数据文件。
+ALTER DATABASE CREATE DATAFILE '/tmp/data1.dbf';
+4.4 如果此时打开数据库的话会提示。
+SQL> ALTER DATABASE OPEN;
+ALTER DATABASE OPEN
+*
+ERROR at line 1:
+ORA-01113: file 5 needs media recovery
+ORA-01110: data file 5: '/tmp/data1.dbf'
+4.5 此时需要恢复介质。
+SQL> ALTER DATABASE RECOVER AUTOMATIC;此时表空间中的数据已经从日志文件中恢复了。
+
+Database altered.
+4.6 此时就可以打开数据库了。
+
+5.用expdp导出数据库表空间需要注意的事项。
+环境： 用sys用户创建了一个新的表空间TB1并且在表空间中创建了一个新的表，但是用system用户调用expdp的时候提示找不到表空间。
+      总是报没有找到表空间TB1的错误。原因是用expdp导出表空间实际上导出的是表空间上的表，而sys用户创建的表用其他的用户是无法查看到的，所以无法导出表并且提示找不到表空间TB1。
+
+6.RMAN备份的几种类型
+
+6.1 所有文件放在指定位置
+RMAN> backup format '/home/oracle/backup/%U' database plus archivelog
+
+6.2 数据文件放在指定位置其他文件放在快速恢复区
+RMAN> backup database format '/home/oracle/backup/%U' plus archivelog
+
+6.3 归档日志放在指定位置，其他文件放在快速恢复区
+RMAN> backup database plus archivelog format '/home/oracle/backup/%U'
+
+6.4 全部采用默认值进行备份。
+RMAN> backup database
+
+7. 如果没有指定备份位置，RMAN会自动把所有的文件放在快速恢复区。
+
+7.1 查看快速恢复区的位置
+SQL> show parameter recover
+
+NAME				     TYPE	 VALUE
+------------------------------------ ----------- ------------------------------
+db_recovery_file_dest		     string	 /opt/oracle/flash_recovery_are
+						 a
+db_recovery_file_dest_size	     big integer 2G
+recovery_parallelism		     integer	 0
+
+7.2 多次备份后快速恢复区的容量不够用了。修改快速恢复区的大小
+SQL> alter system set db_recovery_file_dest_size=10G;
+
+System altered.
+
+7.3 再次查看快速恢复区的大小。已经变成10GB了。
+SQL> show parameter recover
+
+NAME				     TYPE	 VALUE
+------------------------------------ ----------- ------------------------------
+db_recovery_file_dest		     string	 /opt/oracle/flash_recovery_are
+						 a
+db_recovery_file_dest_size	     big integer 10G
+recovery_parallelism		     integer	 0
+
+8. RMAN备份控制文件。
+RMAN> show all;
+
+RMAN configuration parameters are:
+CONFIGURE RETENTION POLICY TO REDUNDANCY 1;    备份文件保留的个数。
+CONFIGURE BACKUP OPTIMIZATION OFF; # default
+CONFIGURE DEFAULT DEVICE TYPE TO DISK; # default
+CONFIGURE CONTROLFILE AUTOBACKUP ON;            自动备份控制文件
+CONFIGURE CONTROLFILE AUTOBACKUP FORMAT FOR DEVICE TYPE DISK TO '%F'; # default
+CONFIGURE DEVICE TYPE DISK PARALLELISM 1 BACKUP TYPE TO BACKUPSET; # default      备份采用1通道进行。
+CONFIGURE DATAFILE BACKUP COPIES FOR DEVICE TYPE DISK TO 1; # default
+CONFIGURE ARCHIVELOG BACKUP COPIES FOR DEVICE TYPE DISK TO 1; # default
+CONFIGURE MAXSETSIZE TO UNLIMITED; # default
+CONFIGURE ENCRYPTION FOR DATABASE OFF; # default
+CONFIGURE ENCRYPTION ALGORITHM 'AES128'; # default
+CONFIGURE ARCHIVELOG DELETION POLICY TO NONE; # default
+CONFIGURE SNAPSHOT CONTROLFILE NAME TO '/opt/oracle/102/dbs/snapcf_ORCL.f'; # default
+
+9.清除多余的备份文件
+
+9.1 采用默认的配置清除多余的备份文件
+RMAN> delete obsolete     这样会采用默认的配置。
+
+9.2 自己指定要保留的备份个数。
+RMAN> delete obsolete redundancy 2   指定保存的备份个数。
+
+9.3 不提示是否直接删除多余的备份文件
+RMAN> delete force noprompt obsolete
+
+10. 列出备份的文件
+
+10.1 列出备份的数据库文件信息
+RMAN> list backup of database
+
+10.2 列出备份的控制文件信息
+RMAN> list backup of controlfile
+
+11. 使表空间处于离线状态
+
+11.1 把指定的表空间置于离线状态。
+把表空间置于离线状态有如下几种方式：
+1）OFFLINE NORMAL 这种模式是把内存中的块数据全部回写到硬盘上。用此种方式把表空间置于离线状态后，再把表空间置于在线状态时不会要求media recovery。
+2）OFFLINE TEMPORARY 这种模式中oracle会出发一个检查点，但是不能确定所有的数据已经被写入。所以当要把表空间的状态置于在线的时候有可能会要求media recovery。
+3）OFFLINE IMMEDIATE 这种方式是立即把表空间置于离线状态。没有执行检查点。所以在重置表空间为在线状态的时候必须要media recovery.
+ 
+SQL> ALTER TABLESPACE TB1 OFFLINE IMMEDIATE;
+
+11.2 把表空间重置为在线状态。
+SQL> ALTER TABLESPACE TB1 ONLINE;
+alter tablespace tb1 online
+*
+ERROR at line 1:
+ORA-01113: file 5 needs media recovery
+ORA-01110: data file 5: '/tmp/data1.dbf'  oracle要求我们必须进行media recovery
+
+11.3 恢复数据文件。
+SQL> alter database recover datafile '/tmp/data1.dbf';
+
+11.4 查看表空间的状态
+SQL> select tablespace_name,status from dba_tablespaces;
+
+11.5 把表空间置于在线状态。
+SQL> alter tablespace tb1 online;
+
+11.6 查看表空间的状态
+SQL> select tablespace_name,status from dba_tablespaces;
+TABLESPACE_NAME 	       STATUS
+------------------------------ ---------
+SYSTEM			       ONLINE
+UNDOTBS1		       ONLINE
+SYSAUX			       ONLINE
+TEMP			       ONLINE
+USERS			       ONLINE
+TB1			       ONLINE
+
+6 rows selected.
+
+
+

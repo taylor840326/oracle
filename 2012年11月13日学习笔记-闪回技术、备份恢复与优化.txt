@@ -1,0 +1,88 @@
+利用Oracle 10g引入的闪回(Flashback)技术在绝大多数情况下可以完全避免令人生畏的不完全恢复，而且速度更快、更安全、更可靠也更简单。
+闪回技术用到了两个系统参数，分别是：
+recyclebin
+db_flashback_retention_target
+
+1.闪回已经删除的表
+闪回已删除表的处理方法：
+	当一个表被删除时，它并不是真的被删除了而是被放到了回收站(recyclebin)里了。只要这表还在回收站中，它就可以被重新恢复（闪回）回来。该回收站被放在表所在的表空间，oracle并不保证所有删除的表都能闪回成功。
+1.1查看回收站功能是否已经被打开。
+SQL> SHOW PARAMETER BIN;
+
+NAME				     TYPE	 VALUE
+------------------------------------ ----------- ------------------------------
+recyclebin			     string	 on
+
+1.2设定回收站功能为开启状态
+SQL> ALTER SYSTEM SET recyclebin=ON;
+
+1.3切换到普通的用户删除一个表，并用如下命令查看表的状态。
+SQL> SELECT * FROM CAT;
+
+1.4查看回收站的内容
+SQL> SELECT * FROM CAT;
+
+TABLE_NAME		       TABLE_TYPE
+------------------------------ -----------
+BIN$zmYnbfRDuHrgQKjACioZwQ==$0 TABLE
+
+1.5彻底删除不想要的表T1
+SQL> PURGE TABLE T1;
+
+1.6清空回收站
+SQL> PURGE RECYCLEBIN;
+
+2.闪回错误的DML操作
+
+3.非当前的还原表空间的恢复
+
+4.只读表空间和临时表空间的恢复 
+4.1临时表空间的恢复
+ORACLE数据库系统会自动创建丢失的临时文件，同时oralce会将相关的信息写入报警文件．
+为临时标空间添加一个新的数据文件．
+SQL> ALTER TABLESPACE TEMP ADD TEMPFILE '/opt/oracle/oradata/macrodb/temp02.dbf' SIZE 100M;
+为临时表空间删除一个数据文件．
+SQL> ALTER TABLESPACE TEMP DROP TEMPFILE '/opt/oracle/oradata/macrodb/temp02.dbf';
+
+5.索引表空间的恢复
+
+5.1创建索引表空间及索引的选项
+SQL> CREATE TABLESPACE INDX_TS DATAFILE '/opt/oracle/oradata/macrodb/indx_ts.dbf' SIZE 100M EXTENT MANAGEMENT LOCAL UNIFORM SIZE 1M;
+SQL> CONN BFOA/BFOA;
+SQL> CREATE INDEX OAID ON BFOA(OAID) TABLESPACE INDX_TS NOLOGGING;
+这里需要说明的是：在以上的每个创建索引语句中都使用了一个logging选项，使用了这一选项后oracle在创建索引时将不做ｒｅｄｏ操作，因此创建索引的速度快些，也就是提高了系统的效率，但负面作用是这样的索引无法使用备份来恢复，因为重做日志上没有记载．
+
+5.2删除索引表空间
+SQL> DROP TABLESPACE INDX_TS INCLUDING CONTENTS;
+SQL> SELECT TABLESPACE_NAME,STATUS FROM DBA_TABLESPACES;
+5.3重新用脚本创建索引表空间．
+按照步骤5.1的内容重新创建索引表空间．
+
+6.加快数据表空间的恢复 
+
+6.1联机热备指定表空间
+SQL> ALTER TABLESPACE BFOA BEGIN BACKUP;
+
+6.2拷贝表空间文件到别的位置备用
+SQL> HOST cp /opt/oracle/oradata/macrodb/bfoa.dbf  /opt/oracle/oradata/macrodb/bfoa01.dbf
+
+6.3终止联机热备指定表空间
+SQL> ALTER TABLESPACE BFOA END BACKUP;
+
+6.4从操作系统中删除指定表空间的数据文件．
+# rm /opt/oracle/oradata/macrodb/bfoa.dbf
+
+6.5启动数据库
+SQL> STARTUP 
+如果出现了缺失标空间数据文件的错误可以把提示的数据文件置于脱机状态．此时只能挂载数据库不能打开数据库．
+SQL> ALTER DATABASE DATAFILE 6 OFFLINE;
+这样数据库就可以打开了．但是表空间ＢＦＯＡ不能使用．
+
+6.6修改表空间为步骤6.2备份的数据文件．
+SQL> ALTER TABLESPACE BFOA RENMAE DATAFILE '/opt/oracle/oradata/macrodb/bfoa.dbf' TO '/opt/oracle/oradata/macrodb/bfoa01.dbf';
+
+6.7从日志文件中恢复数据文件介质．
+SQL> RECOVER DATAFILE 6;
+
+6.7修改数据库文件为联机文件．
+SQL> ALTER DATABASE DATAFILE 6 ONLINE;

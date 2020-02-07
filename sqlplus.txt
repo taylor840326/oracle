@@ -1,0 +1,23 @@
+1、设置每行显示的记录长度：set linesize 300
+设置每页显示的记录长度：set pagesize 30
+
+2、在oracle的sqlplus中提供了ed和@指令，ed用来编辑制定目录下的sql文件，而@可以执行制定目录西的sql文件。一定要制定完整的路径。
+
+3、查找当前用户下的所有表，则可以使用。
+select * from tab;
+
+4、察看当前的用户。
+show user;
+
+5、sqlplus可以调用操作系统的命令
+用host命令后面接着系统命令。
+
+6、sys管理员的初始密码是change_on_install
+system管理员的密码是manager
+soctt密码是tiger
+sh大数据用户的密码是sh
+
+7、
+
+
+

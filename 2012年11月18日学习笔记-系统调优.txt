@@ -1,0 +1,85 @@
+
+1.索引
+什么时候需要建立索引?
+索引应该建立在经常查询的列上.
+列的值特别发散才建索引.
+查询条件小于全盘数据的5%.
+不要在查询的时候往加索引的条件列上加上其他的运算函数,比如UPPER等.
+
+示例:
+
+连接到scott用户中
+CONN SCOTT/TIGER;
+
+创建表
+CREATE TABLE T10(
+A1 NUMBER(10),
+A1 NUMBER(10),
+A1 NUMBER(10),
+A1 NUMBER(10),
+A1 NUMBER(10)) TABLESPACE USERS;
+
+循环插入数据
+BEGIN
+FOR I IN 1..3000000 LOOP
+INSERT INTO T10 VALUES(I,I,I,I,I);
+END LOOP;
+COMMIT；
+END;
+/
+
+建索引
+CREATE UNIQUE INDEX T10_A1 ON T10(A1);建唯一索引.
+CREATE INDEX T10_A34 ON T10(A3,A4); 建复合索引.
+注意:建复合索引,索引的第一列出现在where子句中.复合索引一般可用在where a3=xxx and a4=xxx这种条件中.
+
+2.通过解释方案查看SQL的执行状态,查看索引是否被使用了.
+
+连接到scott用户中
+CONN SCOTT/TIGER;
+
+建表
+SQL> @$ORACLE_HOME/rdbms/admin/utlxplan.sql
+
+建立解释方案
+SQL> EXPLAIN PLAN FOR SELECT * FROM T10 WHERE A1=99999;
+
+读取解释方案的内容
+SQL> @$ORACLE_HOME/rdbms/admin/utlxpls.sql
+
+3.使用SQL跟踪来查看SQL执行状态.
+开启跟踪
+SQL> EXECUTE DBMS_MONITOR.DATABASE_TRACE_ENABLE(waits=>TRUE,binds=>FALSE,instance_name=>'macrodb');
+
+中间执行ＳＱＬ语句．
+
+关闭跟踪
+SQL> EXECUTE DBMS_MONITOR.DATABASE_TRACE_DISABLE(instance_name=>'macrodb');
+
+
+从跟踪文件中查找ｓｑｌ语句．
+grep "t10" *
+
+用tkprof命令过滤跟踪格式的文件成为一个文本格式的文件．
+tkprof macrodb_ora_23826.trc sys=no
+从输出的文件中找到执行的ＳＱＬ语句．
+
+
+update t10 set a5=a5+1 
+where
+ a1=12345
+
+call     count       cpu    elapsed（总时间）       disk（读硬盘）      query（读内存）    current（写内存）        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse （获取ｓｑｌ的执行计划）       1      0.00       0.00          0          0          0           0
+Execute（插入＼删除＼更新）      1      0.00       0.00          2          2          3           1
+Fetch （查询）       0      0.00       0.00          0          0          0           0
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        2      0.01       0.01          2          2          3           1
+
+Misses in library cache during parse: 1
+Optimizer mode: ALL_ROWS
+Parsing user id: 55  
+
+４．使用ＡＤＤＭ研究系统负载的情况．
+
